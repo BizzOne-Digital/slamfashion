@@ -121,7 +121,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
     founderRole: "FOUNDER | S.L.A.M. ACTIVEWEAR",
     founderSignature: "Sean Mattier — FOUNDER | S.L.A.M. ACTIVEWEAR",
     founderImage:
-      "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=900&q=80",
+      "https://res.cloudinary.com/facrsx6y/image/upload/v1786906003/hero.jpg",
     midBannerLeft: "THIS IS MORE THAN ACTIVEWEAR. THIS IS A STANDARD.",
     midBannerRight: "SUBMIT LIKE A MAN.",
     aboutTitle: "Built for Men of Faith",
