@@ -69,9 +69,7 @@ export default function AboutPage() {
               priority
             />
             {/* Fade into black on the left edge */}
-            <div
-              className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-transparent lg:from-black lg:via-black/40 lg:to-transparent"
-            />
+            <div className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-transparent lg:from-black lg:via-black/40 lg:to-transparent" />
           </div>
         </div>
       </section>
@@ -88,10 +86,7 @@ export default function AboutPage() {
               </h2>
               <div className="mt-8 space-y-5">
                 {storyParagraphs.map((paragraph, i) => (
-                  <p
-                    key={i}
-                    className="text-[15px] text-caption leading-[1.8]"
-                  >
+                  <p key={i} className="text-[15px] text-caption leading-[1.8]">
                     {paragraph}
                   </p>
                 ))}
@@ -148,10 +143,7 @@ export default function AboutPage() {
                 className="flex flex-col items-center text-center px-4 py-8 lg:py-10"
               >
                 <div className="w-11 h-11 flex items-center justify-center border border-gold/40 rounded-sm mb-4">
-                  <PillarIcon
-                    icon={value.icon}
-                    className="w-5 h-5 text-gold"
-                  />
+                  <PillarIcon icon={value.icon} className="w-5 h-5 text-gold" />
                 </div>
                 <h3 className="text-[10px] sm:text-[11px] font-black tracking-[0.12em] uppercase text-white leading-snug">
                   {value.title}
@@ -169,22 +161,26 @@ export default function AboutPage() {
       <section className="relative flex min-h-[180px] sm:min-h-[220px] overflow-hidden">
         {/* Black left panel */}
         <div
-          className="relative z-10 flex items-center gap-6 sm:gap-10 bg-black px-8 sm:px-12 lg:px-16 xl:px-20 py-12 w-full sm:w-[62%]"
+          className="relative z-10 flex items-center gap-4 sm:gap-6 bg-black px-8 sm:px-12 lg:px-16 xl:px-20 py-12 w-full sm:w-[62%]"
           style={{
             clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)",
           }}
         >
-          <Monogram size={72} className="shrink-0 hidden sm:block" />
-          <Monogram size={52} className="shrink-0 sm:hidden" />
+          <Image
+            src="https://res.cloudinary.com/facrsx6y/image/upload/v1786905189/Gemini_Generated_Image_xr3oksxr3oksxr3o.jpg"
+            alt="Brand"
+            width={56}
+            height={56}
+            className="w-10 h-10 sm:w-32 sm:h-32 object-contain shrink-0"
+          />
+
           <p className="text-sm sm:text-base lg:text-lg font-black uppercase tracking-[0.06em] text-white leading-snug max-w-md">
             {brandCopy.midBannerLeft}
           </p>
         </div>
 
         {/* Gold right panel */}
-        <div
-          className="absolute inset-0 bg-gold flex items-center justify-end sm:justify-center pr-8 sm:pr-0 pl-[30%] sm:pl-[55%]"
-        >
+        <div className="absolute inset-0 bg-gold flex items-center justify-end sm:justify-center pr-8 sm:pr-0 pl-[30%] sm:pl-[55%]">
           <p className="text-lg sm:text-xl lg:text-2xl font-black uppercase tracking-[0.18em] text-white text-right sm:text-center">
             {brandCopy.midBannerRight}
           </p>

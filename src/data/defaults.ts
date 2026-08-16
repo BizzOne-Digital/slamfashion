@@ -12,7 +12,7 @@ export const DEFAULT_COLLECTIONS = [
     id: "c2",
     title: "Tanks",
     description: "Lightweight performance for training days.",
-    image: "https://res.cloudinary.com/facrsx6y/image/upload/v1786710293/Gemini_Generated_Image_zhu67dzhu67dzhu6.jpg",
+    image: "https://res.cloudinary.com/facrsx6y/image/upload/v1786907374/Gemini_Generated_Image_wop5l9wop5l9wop5.jpg",
     slug: "tanks",
   },
   {
@@ -242,7 +242,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
       title: "Performance Tank",
       category: "Tanks",
       price: 38,
-      image: "https://res.cloudinary.com/facrsx6y/image/upload/v1786710293/Gemini_Generated_Image_zhu67dzhu67dzhu6.jpg",
+      image: "https://res.cloudinary.com/facrsx6y/image/upload/v1786907374/Gemini_Generated_Image_wop5l9wop5l9wop5.jpg",
       description: "Breathable training tank with subtle branding.",
       sizes: ["S", "M", "L", "XL", "2XL"],
       colors: [{ name: "Black", hex: "#000000" }, { name: "White", hex: "#FFFFFF" }],
