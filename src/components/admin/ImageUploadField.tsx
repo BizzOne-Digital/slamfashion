@@ -78,7 +78,9 @@ export function ImageUploadField({
             fill
             className="object-cover"
             sizes="112px"
-            unoptimized={previewSrc.startsWith("/")}
+            unoptimized={
+              previewSrc.startsWith("/") || previewSrc.includes("/api/media/")
+            }
           />
         </div>
       )}
@@ -116,7 +118,9 @@ export function ImageUploadField({
       </div>
 
       {hint && <p className="mt-2 text-xs text-white/30">{hint}</p>}
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      {error && (
+        <p className="mt-2 text-xs leading-relaxed text-red-400">{error}</p>
+      )}
     </div>
   );
 }

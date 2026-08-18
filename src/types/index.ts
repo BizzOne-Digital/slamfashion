@@ -9,7 +9,8 @@ export type ProductCategory =
   | "Sweatshirts"
   | "Slides & Accessories"
   | "Performance"
-  | "Accessories";
+  | "Accessories"
+  | "Bracelets";
 
 export interface ProductColor {
   name: string;

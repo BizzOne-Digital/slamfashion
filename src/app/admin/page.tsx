@@ -46,6 +46,7 @@ const categories: ProductCategory[] = [
   "Slides & Accessories",
   "Performance",
   "Accessories",
+  "Bracelets",
 ];
 
 const emptyProduct: Omit<Product, "id"> = {
@@ -64,6 +65,10 @@ export default function AdminPage() {
   const { logout } = useAuth();
   const {
     settings,
+    saveStatus,
+    saveError,
+    dataSource,
+    dataWarning,
     updateBrandCopy,
     updateContact,
     updateTheme,
@@ -78,12 +83,6 @@ export default function AdminPage() {
   const [newProduct, setNewProduct] = useState<Omit<Product, "id"> | null>(
     null
   );
-  const [saved, setSaved] = useState(false);
-
-  const showSaved = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
 
   const handleLogout = async () => {
     await logout();
@@ -115,18 +114,37 @@ export default function AdminPage() {
                 Admin Panel
               </h1>
               <p className="text-sm text-white/40 mt-1">
-                Manage products, brand copy, and theme settings
+                Changes save to the database and go live for all visitors
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {saved && (
+              {saveStatus === "saving" && (
+                <motion.span
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-gold"
+                >
+                  <Save className="w-3.5 h-3.5 animate-pulse" />
+                  Saving...
+                </motion.span>
+              )}
+              {saveStatus === "saved" && (
                 <motion.span
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
                   className="flex items-center gap-1.5 text-xs font-semibold text-green-400"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  Saved
+                  Saved live
+                </motion.span>
+              )}
+              {saveStatus === "error" && (
+                <motion.span
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-red-400 max-w-xs text-right"
+                >
+                  {saveError || dataWarning || "Save failed"}
                 </motion.span>
               )}
               <button
@@ -143,8 +161,7 @@ export default function AdminPage() {
                       "Reset all settings to defaults? This cannot be undone."
                     )
                   ) {
-                    resetToDefaults();
-                    showSaved();
+                    void resetToDefaults();
                   }
                 }}
                 className="flex items-center gap-2 px-4 py-2 text-xs font-semibold tracking-wider uppercase text-red-400 border border-red-400/30 rounded-lg hover:bg-red-400/10 transition-colors"
@@ -154,6 +171,23 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
+
+          {dataSource === "defaults" && dataWarning && (
+            <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+              {dataWarning}
+              <p className="mt-2 text-xs text-amber-200/80">
+                1. Atlas → Network Access → Add Current IP (or 0.0.0.0/0 for testing)
+                <br />
+                2. Use separate vars in `.env.local`:
+                `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `MONGODB_CLUSTER=cluster0.xxxxx.mongodb.net`
+                <br />
+                3. If DNS still fails on Windows, add Atlas Standard connection string as
+                `MONGODB_STANDARD_URI`
+                <br />
+                4. Restart `npm run dev` after any env change
+              </p>
+            </div>
+          )}
 
           <div className="flex gap-2 mt-6 overflow-x-auto pb-1">
             {tabs.map((tab) => (
@@ -205,7 +239,6 @@ export default function AdminPage() {
                   }
                   setEditingProduct(null);
                   setNewProduct(null);
-                  showSaved();
                 }}
                 onCancel={() => {
                   setEditingProduct(null);
@@ -251,7 +284,6 @@ export default function AdminPage() {
                       onClick={() => {
                         if (confirm(`Delete "${product.title}"?`)) {
                           removeProduct(product.id);
-                          showSaved();
                         }
                       }}
                       className="p-1.5 text-red-400 hover:bg-red-400/10 rounded transition-colors"
@@ -282,7 +314,6 @@ export default function AdminPage() {
                     folder={brandImageFolder(key)}
                     onChange={(url) => {
                       updateBrandCopy({ [key]: url });
-                      showSaved();
                     }}
                     hint="Upload an image or paste a URL."
                   />
@@ -296,7 +327,6 @@ export default function AdminPage() {
                         value={value}
                         onChange={(e) => {
                           updateBrandCopy({ [key]: e.target.value });
-                          showSaved();
                         }}
                         rows={3}
                         className="w-full px-4 py-3 bg-surface border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-gold/50 resize-none"
@@ -307,7 +337,6 @@ export default function AdminPage() {
                         value={value}
                         onChange={(e) => {
                           updateBrandCopy({ [key]: e.target.value });
-                          showSaved();
                         }}
                         className="w-full px-4 py-3 bg-surface border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-gold/50"
                       />
@@ -334,7 +363,6 @@ export default function AdminPage() {
                   value={value}
                   onChange={(e) => {
                     updateTheme({ [key]: e.target.value });
-                    showSaved();
                   }}
                   className="w-12 h-12 rounded-lg border border-white/10 cursor-pointer bg-transparent"
                 />
@@ -345,10 +373,9 @@ export default function AdminPage() {
                   <input
                     type="text"
                     value={value}
-                    onChange={(e) => {
-                      updateTheme({ [key]: e.target.value });
-                      showSaved();
-                    }}
+                  onChange={(e) => {
+                    updateTheme({ [key]: e.target.value });
+                  }}
                     className="w-full px-4 py-2 bg-surface border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-gold/50 font-mono"
                   />
                 </div>
@@ -395,7 +422,6 @@ export default function AdminPage() {
                 value={settings.contact.email}
                 onChange={(e) => {
                   updateContact({ email: e.target.value });
-                  showSaved();
                 }}
                 className="w-full px-4 py-3 bg-surface border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-gold/50"
               />
@@ -409,7 +435,6 @@ export default function AdminPage() {
                 value={settings.contact.phone}
                 onChange={(e) => {
                   updateContact({ phone: e.target.value });
-                  showSaved();
                 }}
                 className="w-full px-4 py-3 bg-surface border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-gold/50"
               />
@@ -423,7 +448,6 @@ export default function AdminPage() {
                 value={settings.contact.location}
                 onChange={(e) => {
                   updateContact({ location: e.target.value });
-                  showSaved();
                 }}
                 className="w-full px-4 py-3 bg-surface border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-gold/50"
               />

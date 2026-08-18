@@ -53,7 +53,9 @@ export function ShopCatalogCard({ product, index = 0 }: ShopCatalogCardProps) {
             alt={product.title}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-500"
-            sizes="(max-width: 640px) 50vw, 16vw"
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 350px"
+            quality={90}
+            unoptimized
           />
           <button
             onClick={(e) => {

@@ -71,8 +71,10 @@ export function ProductModal() {
                     alt={product.title}
                     fill
                     className="object-cover"
-                    sizes="(max-width: 1024px) 100vw, 50vw"
+                    sizes="(max-width: 1024px) 100vw, 640px"
+                    quality={90}
                     priority
+                    unoptimized
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent lg:bg-gradient-to-r" />
                   <span className="absolute top-4 left-4 px-3 py-1.5 glass text-[10px] font-bold tracking-wider uppercase text-gold rounded-sm">

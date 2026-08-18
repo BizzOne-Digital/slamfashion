@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { DEFAULT_SETTINGS, STORAGE_KEY } from "@/data/defaults";
@@ -20,9 +21,15 @@ import type {
   ThemeColors,
 } from "@/types";
 
+export type SaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
+
 interface StoreContextValue {
   settings: StoreSettings;
   isLoaded: boolean;
+  saveStatus: SaveStatus;
+  saveError: string | null;
+  dataSource: "database" | "defaults";
+  dataWarning: string | null;
   updateBrandCopy: (copy: Partial<BrandCopy>) => void;
   updateContact: (contact: Partial<ContactInfo>) => void;
   updateTheme: (theme: Partial<ThemeColors>) => void;
@@ -30,86 +37,166 @@ interface StoreContextValue {
   updateProduct: (id: string, product: Partial<Product>) => void;
   removeProduct: (id: string) => void;
   updatePillar: (id: string, pillar: Partial<BrandPillar>) => void;
-  resetToDefaults: () => void;
+  resetToDefaults: () => Promise<void>;
   getProductsByCategory: (category: ProductCategory | "All") => Product[];
   featuredProducts: Product[];
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-const INVALID_HERO_IMAGE_IDS = [
-  "c89c272b14cd",
-  "1517836357463-d25dfeac3438",
-  "1556821840-3a63f95609a7",
-];
+const SAVE_DEBOUNCE_MS = 700;
 
-function mergeBrandCopy(stored?: Partial<BrandCopy>): BrandCopy {
-  const merged = { ...DEFAULT_SETTINGS.brandCopy, ...stored };
-  const heroImage = merged.heroImage?.trim();
-  const defaultHero = DEFAULT_SETTINGS.brandCopy.heroImage;
+type StoreSettingsResponse = {
+  settings: StoreSettings;
+  source: "database" | "defaults";
+  warning?: string;
+};
 
-  if (
-    !heroImage ||
-    heroImage.includes("images.unsplash.com") ||
-    INVALID_HERO_IMAGE_IDS.some((id) => heroImage.includes(id))
-  ) {
-    merged.heroImage = defaultHero;
+async function fetchStoreSettings(): Promise<StoreSettingsResponse> {
+  const response = await fetch("/api/store/settings", {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load store settings");
   }
 
-  return merged;
+  return response.json() as Promise<StoreSettingsResponse>;
 }
 
-function loadSettings(): StoreSettings {
-  if (typeof window === "undefined") return DEFAULT_SETTINGS;
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as StoreSettings;
-      return {
-        ...DEFAULT_SETTINGS,
-        ...parsed,
-        brandCopy: mergeBrandCopy(parsed.brandCopy),
-        contact: { ...DEFAULT_SETTINGS.contact, ...parsed.contact },
-        theme: { ...DEFAULT_SETTINGS.theme, ...parsed.theme },
-        products: parsed.products?.length ? parsed.products : DEFAULT_SETTINGS.products,
-        pillars: parsed.pillars?.length ? parsed.pillars : DEFAULT_SETTINGS.pillars,
-        coreValues: parsed.coreValues?.length
-          ? parsed.coreValues.map((v, i) => ({
-              ...DEFAULT_SETTINGS.coreValues[i],
-              ...v,
-            }))
-          : DEFAULT_SETTINGS.coreValues,
-        collections: parsed.collections?.length ? parsed.collections : DEFAULT_SETTINGS.collections,
-      };
-    }
-  } catch {
-    /* use defaults */
+async function persistStoreSettings(settings: StoreSettings): Promise<StoreSettings> {
+  const response = await fetch("/api/admin/settings", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(settings),
+  });
+
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    throw new Error(data?.error || "Failed to save store settings");
   }
-  return DEFAULT_SETTINGS;
+
+  const data = (await response.json()) as { settings: StoreSettings };
+  return data.settings;
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<StoreSettings>(DEFAULT_SETTINGS);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<"database" | "defaults">(
+    "defaults"
+  );
+  const [dataWarning, setDataWarning] = useState<string | null>(null);
   const { isAdmin } = useAuth();
 
+  const settingsRef = useRef(settings);
+  const skipSaveRef = useRef(true);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  settingsRef.current = settings;
+
   useEffect(() => {
-    queueMicrotask(() => {
-      setSettings(loadSettings());
-      setIsLoaded(true);
-    });
+    let cancelled = false;
+
+    fetchStoreSettings()
+      .then((data) => {
+        if (cancelled) return;
+        setSettings(data.settings);
+        setDataSource(data.source);
+        setDataWarning(data.warning ?? null);
+        setIsLoaded(true);
+        setSaveStatus(data.source === "database" ? "idle" : "error");
+        setSaveError(
+          data.source === "database" ? null : data.warning ?? null
+        );
+        skipSaveRef.current = true;
+        queueMicrotask(() => {
+          skipSaveRef.current = false;
+        });
+
+        if (typeof window !== "undefined") {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSettings(DEFAULT_SETTINGS);
+        setDataSource("defaults");
+        setDataWarning("Could not load store settings from the server.");
+        setIsLoaded(true);
+        setSaveStatus("error");
+        setSaveError("Could not load store settings from the server.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!isLoaded) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 
     const root = document.documentElement;
     root.style.setProperty("--color-gold", settings.theme.gold);
     root.style.setProperty("--color-bg", settings.theme.background);
     root.style.setProperty("--color-surface", settings.theme.surface);
-    root.style.setProperty("--color-surface-light", settings.theme.surfaceLight);
+    root.style.setProperty(
+      "--color-surface-light",
+      settings.theme.surfaceLight
+    );
   }, [settings, isLoaded]);
+
+  const saveNow = useCallback(async (nextSettings: StoreSettings) => {
+    setSaveStatus("saving");
+    setSaveError(null);
+
+    try {
+      const saved = await persistStoreSettings(nextSettings);
+      skipSaveRef.current = true;
+      setSettings(saved);
+      setDataSource("database");
+      setDataWarning(null);
+      setSaveStatus("saved");
+      queueMicrotask(() => {
+        skipSaveRef.current = false;
+      });
+    } catch (error) {
+      setSaveStatus("error");
+      setSaveError(
+        error instanceof Error ? error.message : "Failed to save changes"
+      );
+    }
+  }, []);
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    setSaveStatus("saving");
+    setSaveError(null);
+
+    saveTimeoutRef.current = setTimeout(() => {
+      void saveNow(settingsRef.current);
+    }, SAVE_DEBOUNCE_MS);
+  }, [saveNow]);
+
+  useEffect(() => {
+    if (!isLoaded || !isAdmin || skipSaveRef.current) return;
+    scheduleSave();
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [settings, isLoaded, isAdmin, scheduleSave]);
 
   const persist = useCallback(
     (updater: (prev: StoreSettings) => StoreSettings) => {
@@ -196,10 +283,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [persist]
   );
 
-  const resetToDefaults = useCallback(() => {
+  const resetToDefaults = useCallback(async () => {
     if (!isAdmin) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    skipSaveRef.current = true;
     setSettings(DEFAULT_SETTINGS);
-  }, [isAdmin]);
+    await saveNow(DEFAULT_SETTINGS);
+    skipSaveRef.current = false;
+  }, [isAdmin, saveNow]);
 
   const getProductsByCategory = useCallback(
     (category: ProductCategory | "All") => {
@@ -218,6 +313,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     () => ({
       settings,
       isLoaded,
+      saveStatus,
+      saveError,
+      dataSource,
+      dataWarning,
       updateBrandCopy,
       updateContact,
       updateTheme,
@@ -232,6 +331,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [
       settings,
       isLoaded,
+      saveStatus,
+      saveError,
+      dataSource,
+      dataWarning,
       updateBrandCopy,
       updateContact,
       updateTheme,
