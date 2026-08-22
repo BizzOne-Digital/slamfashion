@@ -1,3 +1,4 @@
+import { resolveSrv } from "dns/promises";
 import { MongoClient, type MongoClientOptions } from "mongodb";
 
 declare global {
@@ -16,7 +17,8 @@ export function getMongoDbName(): string {
 
 function extractHostFromUri(uri: string): string {
   const match = uri.match(/@([^/?]+)/);
-  return match?.[1] || "";
+  const hostPart = match?.[1] || "";
+  return hostPart.split(":")[0] || "";
 }
 
 function isPlaceholderUri(uri: string): boolean {
@@ -68,7 +70,13 @@ function getAtlasCredentials(): AtlasCredentials | null {
 
   const match = uri.match(/^mongodb\+srv:\/\/([^@]+)@([^/?]+)(?:\/([^?]*))?/);
   if (!match) {
-    return null;
+    const directMatch = uri.match(/^mongodb:\/\/([^@]+)@([^/?]+)(?:\/([^?]*))?/);
+    if (!directMatch) return null;
+    return {
+      userPass: directMatch[1],
+      host: extractHostFromUri(uri),
+      dbName: directMatch[3]?.trim() || getMongoDbName(),
+    };
   }
 
   return {
@@ -78,61 +86,77 @@ function getAtlasCredentials(): AtlasCredentials | null {
   };
 }
 
-function buildAtlasDirectUri(creds: AtlasCredentials): string {
-  return `mongodb://${creds.userPass}@${creds.host}:27017/${creds.dbName}?ssl=true&authSource=admin&retryWrites=true&w=majority`;
-}
-
 function buildAtlasSrvUri(creds: AtlasCredentials): string {
   return `mongodb+srv://${creds.userPass}@${creds.host}/${creds.dbName}?retryWrites=true&w=majority`;
 }
 
-function convertSrvUriToDirect(uri: string): string {
-  if (!isSrvUri(uri)) {
-    return "";
-  }
+/**
+ * Resolve Atlas shard hosts via SRV (works on Windows when TXT records time out).
+ * Avoids mongodb+srv:// which requires a TXT DNS lookup that many routers block.
+ */
+async function resolveAtlasShardUris(
+  creds: AtlasCredentials
+): Promise<string[]> {
+  try {
+    const records = await resolveSrv(`_mongodb._tcp.${creds.host}`);
+    if (!records.length) return [];
 
-  const match = uri.match(/^mongodb\+srv:\/\/([^@]+)@([^/?]+)(?:\/([^?]*))?/);
-  if (!match) {
-    return "";
-  }
+    const hosts = records.map((record) => `${record.name}:${record.port}`).join(",");
+    const primary = records[0];
 
-  const dbName = match[3]?.trim() || getMongoDbName();
-  return `mongodb://${match[1]}@${match[2]}:27017/${dbName}?ssl=true&authSource=admin&retryWrites=true&w=majority`;
+    return [
+      `mongodb://${creds.userPass}@${hosts}/${creds.dbName}?ssl=true&authSource=admin&retryWrites=true&w=majority`,
+      `mongodb://${creds.userPass}@${primary.name}:${primary.port}/${creds.dbName}?ssl=true&authSource=admin&directConnection=true&retryWrites=true&w=majority`,
+    ];
+  } catch (error) {
+    console.warn("Could not resolve Atlas SRV records:", error);
+    return [];
+  }
 }
 
-export function getMongoConnectionCandidates(): string[] {
+/** Static URIs from environment — excludes broken cluster-hostname:27017 shortcuts. */
+export function getStaticConnectionCandidates(): string[] {
   const creds = getAtlasCredentials();
   const rawUri = process.env.MONGODB_URI?.trim();
 
   const candidates = [
     process.env.MONGODB_STANDARD_URI?.trim(),
     process.env.MONGODB_URI_STANDARD?.trim(),
-    creds ? buildAtlasDirectUri(creds) : "",
-    rawUri ? convertSrvUriToDirect(rawUri) : "",
     process.env.MONGO_URL?.trim(),
     process.env.MONGODB_URL?.trim(),
-    rawUri && !isSrvUri(rawUri) ? rawUri : "",
+    rawUri && !isSrvUri(rawUri) && isValidUri(rawUri) ? rawUri : "",
     creds ? buildAtlasSrvUri(creds) : "",
-    rawUri && isSrvUri(rawUri) ? rawUri : "",
+    rawUri && isSrvUri(rawUri) && isValidUri(rawUri) ? rawUri : "",
   ].filter((value): value is string => Boolean(value && isValidUri(value)));
 
   return [...new Set(candidates)];
 }
 
+/** @deprecated Use getStaticConnectionCandidates — kept for compatibility */
+export function getMongoConnectionCandidates(): string[] {
+  return getStaticConnectionCandidates();
+}
+
 export function getMongoUri(): string {
-  return getMongoConnectionCandidates()[0] || "";
+  return getStaticConnectionCandidates()[0] || "";
 }
 
 export function isMongoConfigured(): boolean {
-  return getMongoConnectionCandidates().length > 0;
+  return Boolean(getAtlasCredentials() || getStaticConnectionCandidates().length);
 }
 
 async function connectWithFallback(): Promise<MongoClient> {
-  const candidates = getMongoConnectionCandidates();
+  const staticCandidates = getStaticConnectionCandidates();
+  const creds = getAtlasCredentials();
 
-  if (!candidates.length) {
+  if (!staticCandidates.length && !creds) {
     throw new Error("MONGODB_URI is not configured");
   }
+
+  const resolvedCandidates = creds ? await resolveAtlasShardUris(creds) : [];
+
+  // Prefer SRV-resolved shard URIs first — fixes Windows router TXT DNS timeouts.
+  const candidates = [...new Set([...resolvedCandidates, ...staticCandidates])];
 
   let lastError: unknown;
 
@@ -143,7 +167,11 @@ async function connectWithFallback(): Promise<MongoClient> {
       await client.connect();
       await client.db(getMongoDbName()).command({ ping: 1 });
 
-      const scheme = isSrvUri(uri) ? "srv" : "direct";
+      const scheme = uri.includes("directConnection=true")
+        ? "shard-direct"
+        : isSrvUri(uri)
+          ? "srv"
+          : "standard";
       console.info(`MongoDB connected using ${scheme} URI.`);
 
       return client;
@@ -155,8 +183,7 @@ async function connectWithFallback(): Promise<MongoClient> {
         /* ignore */
       }
 
-      const scheme = isSrvUri(uri) ? "srv" : "direct";
-      console.warn(`MongoDB ${scheme} connection attempt failed.`);
+      console.warn(`MongoDB connection attempt failed (${uri.slice(0, 40)}...).`);
     }
   }
 
@@ -205,21 +232,25 @@ export function getMongoConnectionErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
   if (message.includes("ETIMEOUT") || message.includes("queryTxt")) {
-    return "MongoDB DNS timeout. Allow your IP in Atlas Network Access, then add MONGODB_STANDARD_URI from Atlas Connect → Drivers (the mongodb:// string, not mongodb+srv://).";
+    return "MongoDB DNS timeout (your router blocks SRV TXT lookups). Restart the dev server — the app now auto-resolves shard hosts. Or set MONGODB_STANDARD_URI from Atlas Connect → Drivers.";
   }
 
   if (
     message.includes("Authentication failed") ||
     message.includes("bad auth")
   ) {
-    return "MongoDB login failed. Check MONGODB_USERNAME and MONGODB_PASSWORD.";
+    return "MongoDB login failed. Check MONGODB_USERNAME and MONGODB_PASSWORD match your Atlas user.";
   }
 
   if (message.includes("MONGODB_URI is not configured")) {
     return "Database is not configured. Add MongoDB settings to your environment file.";
   }
 
-  return "Could not connect to MongoDB. Verify Atlas Network Access, credentials, and your connection string.";
+  if (message.includes("Server selection timed out")) {
+    return "MongoDB connection timed out. Check Atlas Network Access (0.0.0.0/0) and restart npm run dev.";
+  }
+
+  return "Could not connect to MongoDB. Verify Atlas credentials and restart the dev server.";
 }
 
 export async function resetMongoClient(): Promise<void> {

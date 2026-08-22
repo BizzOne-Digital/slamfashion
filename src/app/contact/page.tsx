@@ -9,7 +9,6 @@ import { PageShell } from "@/components/PageShell";
 import { ContactForm } from "@/components/ContactForm";
 import { ContactInfo } from "@/components/ContactInfo";
 import { ContactPillarsBar } from "@/components/ContactPillarsBar";
-import { LargeBrandMark } from "@/components/LargeBrandMark";
 import { Monogram } from "@/components/Logo";
 import { useStore } from "@/context/StoreContext";
 
@@ -50,9 +49,22 @@ export default function ContactPage() {
               </p>
             </div>
 
-            {/* Right — large SM monogram */}
-            <div className="relative flex items-center justify-center py-12 lg:py-0 min-h-[240px]">
-              <LargeBrandMark className="w-[min(280px,70vw)] h-auto opacity-90" />
+            {/* Right — same hero image as homepage */}
+            <div className="relative min-h-[320px] sm:min-h-[400px] lg:min-h-0 bg-[#0A0A0A] overflow-hidden flex items-center justify-center">
+              <Monogram
+                size={400}
+                variant="watermark"
+                className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/4 opacity-40 pointer-events-none z-[1]"
+              />
+              <Image
+                src={brandCopy.heroImage}
+                alt="S.L.A.M. premium apparel"
+                fill
+                className="object-contain object-center z-[2]"
+                sizes="(max-width: 1024px) 100vw, 50vw"
+                priority
+              />
+              <div className="absolute inset-0 z-[3] pointer-events-none bg-gradient-to-r from-black/70 via-black/15 to-transparent lg:from-black/50 lg:via-transparent lg:to-transparent" />
             </div>
           </div>
         </div>

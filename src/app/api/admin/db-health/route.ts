@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import {
-  getMongoConnectionCandidates,
+  getStaticConnectionCandidates,
   isMongoConfigured,
   testMongoConnection,
 } from "@/lib/mongodb";
@@ -32,6 +32,6 @@ export async function GET(request: NextRequest) {
     ok: result.ok,
     configured: true,
     message: result.message,
-    candidates: getMongoConnectionCandidates().length,
+    candidates: getStaticConnectionCandidates().length,
   });
 }

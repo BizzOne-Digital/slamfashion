@@ -5,7 +5,7 @@ import {
   getMongoConnectionErrorMessage,
   isMongoConfigured,
 } from "@/lib/mongodb";
-import { normalizeStoreSettings } from "@/lib/store-settings-utils";
+import { sanitizeStoreSettingsForSave } from "@/lib/store-settings-utils";
 import type { StoreSettings } from "@/types";
 
 export const runtime = "nodejs";
@@ -27,7 +27,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = (await request.json()) as Partial<StoreSettings>;
-    const settings = normalizeStoreSettings(body);
+    const settings = sanitizeStoreSettingsForSave(body);
     await saveStoreSettings(settings);
 
     return NextResponse.json({

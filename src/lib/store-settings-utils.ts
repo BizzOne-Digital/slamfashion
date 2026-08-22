@@ -23,24 +23,41 @@ function mergeBrandCopy(stored?: Partial<BrandCopy>): BrandCopy {
   return merged;
 }
 
-function mergeProducts(stored?: Product[]): Product[] {
-  const defaults = DEFAULT_SETTINGS.products;
-  if (!stored?.length) return defaults;
+/** Fix known-broken image paths on existing records (migration only). */
+function migrateProductImages(products: Product[]): Product[] {
+  const defaultById = new Map(
+    DEFAULT_SETTINGS.products.map((product) => [product.id, product])
+  );
 
-  const storedIds = new Set(stored.map((p) => p.id));
-  const missing = defaults.filter((p) => !storedIds.has(p.id));
-  return missing.length ? [...stored, ...missing] : stored;
+  return products.map((product) => {
+    const defaultProduct = defaultById.get(product.id);
+    if (!defaultProduct) return product;
+
+    if (
+      product.image.startsWith("/images/slides/") &&
+      defaultProduct.image.startsWith("http")
+    ) {
+      return { ...product, image: defaultProduct.image };
+    }
+
+    return product;
+  });
 }
 
-function mergeCollections(stored?: CollectionCategory[]): CollectionCategory[] {
-  const defaults = DEFAULT_SETTINGS.collections;
-  if (!stored?.length) return defaults;
-
-  const storedIds = new Set(stored.map((collection) => collection.id));
-  const missing = defaults.filter((collection) => !storedIds.has(collection.id));
-  return missing.length ? [...stored, ...missing] : stored;
+function resolveProducts(stored?: Product[]): Product[] {
+  if (!stored) return DEFAULT_SETTINGS.products;
+  return migrateProductImages(stored);
 }
 
+function resolveCollections(stored?: CollectionCategory[]): CollectionCategory[] {
+  if (!stored) return DEFAULT_SETTINGS.collections;
+  return stored;
+}
+
+/**
+ * Normalize settings when loading from the database.
+ * Fills in missing structural fields but does NOT re-add deleted products/collections.
+ */
 export function normalizeStoreSettings(
   stored?: Partial<StoreSettings> | null
 ): StoreSettings {
@@ -52,7 +69,7 @@ export function normalizeStoreSettings(
     brandCopy: mergeBrandCopy(stored.brandCopy),
     contact: { ...DEFAULT_SETTINGS.contact, ...stored.contact },
     theme: { ...DEFAULT_SETTINGS.theme, ...stored.theme },
-    products: mergeProducts(stored.products),
+    products: resolveProducts(stored.products),
     pillars: stored.pillars?.length ? stored.pillars : DEFAULT_SETTINGS.pillars,
     coreValues: stored.coreValues?.length
       ? stored.coreValues.map((value, index) => ({
@@ -60,6 +77,35 @@ export function normalizeStoreSettings(
           ...value,
         }))
       : DEFAULT_SETTINGS.coreValues,
-    collections: mergeCollections(stored.collections),
+    collections: resolveCollections(stored.collections),
+  };
+}
+
+/**
+ * Prepare settings for saving to MongoDB.
+ * Admin edits are authoritative — deleted items stay deleted.
+ */
+export function sanitizeStoreSettingsForSave(
+  input: Partial<StoreSettings>
+): StoreSettings {
+  return {
+    brandCopy: mergeBrandCopy(input.brandCopy),
+    contact: { ...DEFAULT_SETTINGS.contact, ...input.contact },
+    theme: { ...DEFAULT_SETTINGS.theme, ...input.theme },
+    products: Array.isArray(input.products)
+      ? input.products.map((product) => ({
+          ...product,
+          price: Number(product.price) || 0,
+          sizes: product.sizes?.length ? product.sizes : ["S", "M", "L", "XL"],
+          colors: product.colors?.length
+            ? product.colors
+            : [{ name: "Black", hex: "#000000" }],
+        }))
+      : [],
+    pillars: input.pillars?.length ? input.pillars : DEFAULT_SETTINGS.pillars,
+    coreValues: input.coreValues?.length
+      ? input.coreValues
+      : DEFAULT_SETTINGS.coreValues,
+    collections: Array.isArray(input.collections) ? input.collections : [],
   };
 }

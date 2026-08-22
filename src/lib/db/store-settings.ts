@@ -1,5 +1,8 @@
 import { getClientPromise, getMongoDbName } from "@/lib/mongodb";
-import { normalizeStoreSettings } from "@/lib/store-settings-utils";
+import {
+  normalizeStoreSettings,
+  sanitizeStoreSettingsForSave,
+} from "@/lib/store-settings-utils";
 import { DEFAULT_SETTINGS } from "@/data/defaults";
 import type { StoreSettings } from "@/types";
 
@@ -29,7 +32,7 @@ export async function getStoreSettings(): Promise<StoreSettings> {
 }
 
 export async function saveStoreSettings(settings: StoreSettings): Promise<void> {
-  const normalized = normalizeStoreSettings(settings);
+  const normalized = sanitizeStoreSettingsForSave(settings);
   const client = await getClientPromise();
   const collection = client
     .db(getMongoDbName())

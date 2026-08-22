@@ -14,6 +14,7 @@ import { useAuth } from "@/context/AuthContext";
 import type {
   BrandCopy,
   BrandPillar,
+  CollectionCategory,
   ContactInfo,
   Product,
   ProductCategory,
@@ -36,8 +37,12 @@ interface StoreContextValue {
   addProduct: (product: Omit<Product, "id">) => void;
   updateProduct: (id: string, product: Partial<Product>) => void;
   removeProduct: (id: string) => void;
+  addCollection: (collection: Omit<CollectionCategory, "id">) => void;
+  updateCollection: (id: string, collection: Partial<CollectionCategory>) => void;
+  removeCollection: (id: string) => void;
   updatePillar: (id: string, pillar: Partial<BrandPillar>) => void;
   resetToDefaults: () => Promise<void>;
+  reloadSettings: () => Promise<void>;
   getProductsByCategory: (category: ProductCategory | "All") => Product[];
   featuredProducts: Product[];
 }
@@ -96,7 +101,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { isAdmin } = useAuth();
 
   const settingsRef = useRef(settings);
-  const skipSaveRef = useRef(true);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   settingsRef.current = settings;
@@ -104,39 +108,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
-    fetchStoreSettings()
-      .then((data) => {
+    const load = async () => {
+      try {
+        const data = await fetchStoreSettings();
         if (cancelled) return;
         setSettings(data.settings);
+        settingsRef.current = data.settings;
         setDataSource(data.source);
         setDataWarning(data.warning ?? null);
         setIsLoaded(true);
-        setSaveStatus(data.source === "database" ? "idle" : "error");
-        setSaveError(
-          data.source === "database" ? null : data.warning ?? null
-        );
-        skipSaveRef.current = true;
-        queueMicrotask(() => {
-          skipSaveRef.current = false;
-        });
+        setSaveStatus("idle");
+        setSaveError(null);
 
         if (typeof window !== "undefined") {
           localStorage.removeItem(STORAGE_KEY);
         }
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return;
         setSettings(DEFAULT_SETTINGS);
         setDataSource("defaults");
         setDataWarning("Could not load store settings from the server.");
         setIsLoaded(true);
-        setSaveStatus("error");
-        setSaveError("Could not load store settings from the server.");
-      });
+        setSaveStatus("idle");
+        setSaveError(null);
+      }
+    };
+
+    void load();
 
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const reloadSettings = useCallback(async () => {
+    setSaveStatus("loading");
+    setSaveError(null);
+
+    try {
+      const data = await fetchStoreSettings();
+      setSettings(data.settings);
+      settingsRef.current = data.settings;
+      setDataSource(data.source);
+      setDataWarning(data.warning ?? null);
+      setSaveStatus("idle");
+      setSaveError(null);
+    } catch {
+      setDataSource("defaults");
+      setDataWarning("Could not load store settings from the server.");
+      setSaveStatus("idle");
+      setSaveError(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -153,19 +175,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [settings, isLoaded]);
 
   const saveNow = useCallback(async (nextSettings: StoreSettings) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
     setSaveStatus("saving");
     setSaveError(null);
 
     try {
       const saved = await persistStoreSettings(nextSettings);
-      skipSaveRef.current = true;
+      settingsRef.current = saved;
       setSettings(saved);
       setDataSource("database");
       setDataWarning(null);
       setSaveStatus("saved");
-      queueMicrotask(() => {
-        skipSaveRef.current = false;
-      });
+      setTimeout(() => {
+        setSaveStatus((current) => (current === "saved" ? "idle" : current));
+      }, 2000);
     } catch (error) {
       setSaveStatus("error");
       setSaveError(
@@ -179,31 +206,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    setSaveStatus("saving");
-    setSaveError(null);
-
     saveTimeoutRef.current = setTimeout(() => {
       void saveNow(settingsRef.current);
     }, SAVE_DEBOUNCE_MS);
   }, [saveNow]);
 
-  useEffect(() => {
-    if (!isLoaded || !isAdmin || skipSaveRef.current) return;
-    scheduleSave();
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, [settings, isLoaded, isAdmin, scheduleSave]);
-
   const persist = useCallback(
-    (updater: (prev: StoreSettings) => StoreSettings) => {
+    (updater: (prev: StoreSettings) => StoreSettings, immediate = false) => {
       if (!isAdmin) return;
-      setSettings(updater);
+
+      setSettings((prev) => {
+        const next = updater(prev);
+        settingsRef.current = next;
+
+        if (immediate) {
+          void saveNow(next);
+        } else {
+          scheduleSave();
+        }
+
+        return next;
+      });
     },
-    [isAdmin]
+    [isAdmin, saveNow, scheduleSave]
   );
 
   const updateBrandCopy = useCallback(
@@ -238,35 +263,88 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const addProduct = useCallback(
     (product: Omit<Product, "id">) => {
-      persist((prev) => ({
-        ...prev,
-        products: [
-          ...prev.products,
-          { ...product, id: `p${Date.now()}` },
-        ],
-      }));
+      persist(
+        (prev) => ({
+          ...prev,
+          products: [
+            ...prev.products,
+            { ...product, id: `p${Date.now()}` },
+          ],
+        }),
+        true
+      );
     },
     [persist]
   );
 
   const updateProduct = useCallback(
     (id: string, product: Partial<Product>) => {
-      persist((prev) => ({
-        ...prev,
-        products: prev.products.map((p) =>
-          p.id === id ? { ...p, ...product } : p
-        ),
-      }));
+      persist(
+        (prev) => ({
+          ...prev,
+          products: prev.products.map((p) =>
+            p.id === id ? { ...p, ...product } : p
+          ),
+        }),
+        true
+      );
     },
     [persist]
   );
 
   const removeProduct = useCallback(
     (id: string) => {
-      persist((prev) => ({
-        ...prev,
-        products: prev.products.filter((p) => p.id !== id),
-      }));
+      persist(
+        (prev) => ({
+          ...prev,
+          products: prev.products.filter((p) => p.id !== id),
+        }),
+        true
+      );
+    },
+    [persist]
+  );
+
+  const addCollection = useCallback(
+    (collection: Omit<CollectionCategory, "id">) => {
+      persist(
+        (prev) => ({
+          ...prev,
+          collections: [
+            ...prev.collections,
+            { ...collection, id: `c${Date.now()}` },
+          ],
+        }),
+        true
+      );
+    },
+    [persist]
+  );
+
+  const updateCollection = useCallback(
+    (id: string, collection: Partial<CollectionCategory>) => {
+      persist(
+        (prev) => ({
+          ...prev,
+          collections: prev.collections.map((c) =>
+            c.id === id ? { ...c, ...collection } : c
+          ),
+        }),
+        true
+      );
+    },
+    [persist]
+  );
+
+  const removeCollection = useCallback(
+    (id: string) => {
+      persist(
+        (prev) => ({
+          ...prev,
+          collections: prev.collections.filter((c) => c.id !== id),
+        }),
+        true
+      );
     },
     [persist]
   );
@@ -290,10 +368,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    skipSaveRef.current = true;
     setSettings(DEFAULT_SETTINGS);
+    settingsRef.current = DEFAULT_SETTINGS;
     await saveNow(DEFAULT_SETTINGS);
-    skipSaveRef.current = false;
   }, [isAdmin, saveNow]);
 
   const getProductsByCategory = useCallback(
@@ -323,8 +400,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addProduct,
       updateProduct,
       removeProduct,
+      addCollection,
+      updateCollection,
+      removeCollection,
       updatePillar,
       resetToDefaults,
+      reloadSettings,
       getProductsByCategory,
       featuredProducts,
     }),
@@ -341,8 +422,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addProduct,
       updateProduct,
       removeProduct,
+      addCollection,
+      updateCollection,
+      removeCollection,
       updatePillar,
       resetToDefaults,
+      reloadSettings,
       getProductsByCategory,
       featuredProducts,
     ]

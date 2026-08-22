@@ -3,6 +3,7 @@ import { getStoreSettings } from "@/lib/db/store-settings";
 import {
   getMongoConnectionErrorMessage,
   isMongoConfigured,
+  resetMongoClient,
 } from "@/lib/mongodb";
 import { DEFAULT_SETTINGS } from "@/data/defaults";
 import type { StoreSettings } from "@/types";
@@ -46,13 +47,28 @@ export async function GET() {
   } catch (error) {
     console.error("Failed to load store settings:", error);
 
-    return NextResponse.json(
-      {
-        settings: DEFAULT_SETTINGS,
-        source: "defaults",
-        warning: getMongoConnectionErrorMessage(error),
-      } satisfies StoreSettingsResponse,
-      { headers }
-    );
+    try {
+      await resetMongoClient();
+      const settings = await getStoreSettings();
+
+      return NextResponse.json(
+        {
+          settings,
+          source: "database",
+        } satisfies StoreSettingsResponse,
+        { headers }
+      );
+    } catch (retryError) {
+      console.error("Store settings retry failed:", retryError);
+
+      return NextResponse.json(
+        {
+          settings: DEFAULT_SETTINGS,
+          source: "defaults",
+          warning: getMongoConnectionErrorMessage(retryError),
+        } satisfies StoreSettingsResponse,
+        { headers }
+      );
+    }
   }
 }

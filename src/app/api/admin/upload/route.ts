@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Readable } from "stream";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
-import {
-  getMediaUploadErrorMessage,
-  uploadMedia,
-} from "@/lib/db/media";
+import { getMediaUploadErrorMessage, uploadMedia } from "@/lib/db/media";
+import { saveLocalImage } from "@/lib/local-uploads";
 import { isMongoConfigured } from "@/lib/mongodb";
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024;
@@ -26,16 +23,6 @@ export async function POST(request: NextRequest) {
 
   if (!token || !verifySessionToken(token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!isMongoConfigured()) {
-    return NextResponse.json(
-      {
-        error:
-          "Database is not configured. Add MONGODB_URI to your environment file.",
-      },
-      { status: 503 }
-    );
   }
 
   try {
@@ -73,14 +60,28 @@ export async function POST(request: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const url = await uploadMedia(buffer, file.name, file.type, folder);
 
-    return NextResponse.json({ url });
+    if (isMongoConfigured()) {
+      try {
+        const mongoUrl = await uploadMedia(buffer, file.name, file.type, folder);
+        return NextResponse.json({ url: mongoUrl, storage: "mongodb" });
+      } catch (error) {
+        console.warn("MongoDB upload failed, using local file:", error);
+      }
+    }
+
+    const localUrl = await saveLocalImage(buffer, folder, file.name);
+    return NextResponse.json({ url: localUrl, storage: "local" });
   } catch (error) {
     console.error("Upload failed:", error);
 
     return NextResponse.json(
-      { error: getMediaUploadErrorMessage(error) },
+      {
+        error:
+          error instanceof Error && !isMongoConfigured()
+            ? error.message
+            : getMediaUploadErrorMessage(error),
+      },
       { status: 500 }
     );
   }
